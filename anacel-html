@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>12 Weeks of Gains (Web Version)</title>
+  <style>
+    /* ----- Dark Mode Basic Styles ----- */
+    body {
+      margin: 0; padding: 0;
+      background: #222; color: #fff;
+      font-family: Arial, sans-serif;
+    }
+    h1, h2, h3, h4, h5 {
+      margin: 0;
+    }
+    a, button {
+      cursor: pointer;
+    }
+    /* Container for the entire app */
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 10px;
+    }
+
+    /* Top bar for Weight/Maintenance fields */
+    .top-bar {
+      background: #333;
+      padding: 10px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+    .top-bar label {
+      margin: 5px;
+      min-width: 100px;
+      text-align: right;
+    }
+    .top-bar input {
+      width: 100px;
+      margin: 5px;
+      background: #444;
+      color: #fff;
+      border: 1px solid #555;
+      text-align: center;
+      outline: none;
+    }
+
+    /* Toolbar for Save/Load */
+    .toolbar {
+      background: #333;
+      padding: 10px;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+    .toolbar button {
+      background: #444;
+      color: #fff;
+      border: none;
+      padding: 8px 15px;
+    }
+    .toolbar input[type="file"] {
+      display: none; /* hidden input, we'll label it */
+    }
+    .toolbar label.file-label {
+      background: #444;
+      color: #fff;
+      padding: 8px 15px;
+      border: none;
+      display: inline-block;
+    }
+
+    /* Weeks container with scrolling if needed */
+    .weeks-container {
+      background: #333;
+      padding: 10px;
+      max-height: 70vh; /* limit height so we can scroll if very large */
+      overflow-y: auto;
+    }
+
+    /* Each week block */
+    .week-block {
+      border: 1px solid #444;
+      margin-bottom: 10px;
+      background: #444;
+    }
+    .week-header {
+      background: #444;
+      color: #fff;
+      padding: 10px;
+      font-weight: bold;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      cursor: pointer;
+    }
+
+    /* The content that collapses/expands (days) */
+    .week-content {
+      display: none; /* hidden by default */
+      padding: 10px;
+    }
+
+    /* Each day block */
+    .day-block {
+      border: 1px solid #555;
+      margin-bottom: 10px;
+      background: #444;
+      padding: 10px;
+    }
+    .day-title {
+      margin-bottom: 10px;
+      font-weight: bold;
+    }
+
+    .day-row {
+      display: grid;
+      grid-template-columns: 100px 1fr 1fr 1fr 1fr 1fr; 
+      /* Explanation: 
+         - First col for label "Day X"
+         - Next 5 columns for each of the 5 fields. 
+         But here we are actually putting "Day X" in .day-title,
+         so we might just do 5 columns for fields. 
+         We'll keep it flexible. 
+      */
+      column-gap: 10px;
+      row-gap: 5px;
+    }
+
+    .day-field {
+      background: #333;
+      color: #fff;
+      border: 1px solid #555;
+      text-align: center;
+      outline: none;
+      padding: 4px;
+    }
+
+    /* For labeling fields inside a day */
+    .field-label {
+      display: block;
+      font-size: 0.9em;
+      margin-bottom: 2px;
+    }
+  </style>
+</head>
+<body>
+
+<div class="container">
+
+  <h1>12 Weeks of Gains (Web Version)</h1>
+
+  <!-- TOP BAR: Weight & Maintenance -->
+  <div class="top-bar">
+    <label>Weight (LBS):</label>
+    <input type="text" id="weightInput" placeholder="0" />
+    <label>Maintenance:</label>
+    <input type="text" id="maintenanceOutput" readonly />
+  </div>
+
+  <!-- TOOLBAR: Save & Load Buttons -->
+  <div class="toolbar">
+    <button id="saveBtn">Save to JSON</button>
+
+    <!-- Hidden file input for loading -->
+    <input type="file" id="loadFileInput" accept=".json" />
+    <label for="loadFileInput" class="file-label">Load from JSON</label>
+  </div>
+
+  <!-- WEEKS CONTAINER: Scrollable area with 16 collapsible weeks -->
+  <div class="weeks-container" id="weeksContainer"></div>
+
+</div> <!-- end container -->
+
+
+<script>
+/* 
+   JavaScript to replicate functionality:
+   - Weight -> Maintenance auto-calc
+   - 16 collapsible weeks, each with 7 days, each day has 5 fields
+   - Save -> produce JSON file
+   - Load -> read JSON and populate fields
+*/
+
+/* ---------- Configuration ---------- */
+const NUM_WEEKS = 16;
+const NUM_DAYS = 7;
+const FIELDS = ["Weight", "Calories", "Protein", "Carbs", "Fat"];
+
+/* Data structure in JS:
+   Let "appData" be an object:
+   {
+     weight: string,
+     maintenance: string,
+     weeks: [
+       {
+         days: [
+           { weight: ..., calories: ..., protein: ..., carbs: ..., fat: ... },
+           ...
+         ]
+       },
+       ...
+     ]
+   }
+*/
+let appData = {
+  weight: "",
+  maintenance: "",
+  weeks: []
+};
+
+// We'll store references to the DOM elements for each day's fields in a similar structure
+let weeksDOM = [];
+
+
+/* ---------- On page load, build the UI programmatically ---------- */
+document.addEventListener("DOMContentLoaded", () => {
+  // 1. Build the weeks / days blocks
+  buildWeeksUI();
+
+  // 2. Add event for Weight -> Maintenance auto-calc
+  const weightInput = document.getElementById("weightInput");
+  const maintenanceOutput = document.getElementById("maintenanceOutput");
+  weightInput.addEventListener("input", (e) => {
+    const val = e.target.value.trim();
+    let calc = "";
+    if (!isNaN(val) && val !== "") {
+      const w = parseFloat(val);
+      const m = w * 15;
+      calc = Number.isInteger(m) ? m.toString() : m.toFixed(2);
+    }
+    maintenanceOutput.value = calc;
+  });
+
+  // 3. Save button
+  const saveBtn = document.getElementById("saveBtn");
+  saveBtn.addEventListener("click", onSave);
+
+  // 4. Load file input
+  const loadFileInput = document.getElementById("loadFileInput");
+  loadFileInput.addEventListener("change", onLoadFileSelected);
+});
+
+
+/* ---------- buildWeeksUI: Creates 16 "Week" blocks w/ 7 "Day" sections ---------- */
+function buildWeeksUI() {
+  const weeksContainer = document.getElementById("weeksContainer");
+  for (let w = 0; w < NUM_WEEKS; w++) {
+    // Create a week block
+    const weekBlock = document.createElement("div");
+    weekBlock.className = "week-block";
+
+    // Header (collapsible toggle)
+    const weekHeader = document.createElement("div");
+    weekHeader.className = "week-header";
+    weekHeader.textContent = `Week ${w+1} ▼`;
+
+    // content area (days)
+    const weekContent = document.createElement("div");
+    weekContent.className = "week-content";
+
+    // click to toggle
+    weekHeader.addEventListener("click", () => {
+      const isOpen = (weekContent.style.display === "block");
+      // close any other open week if you want only one open at a time:
+      // (If you want multiple can stay open, remove that logic.)
+      // We'll keep it simple so each can open/close individually:
+      if (isOpen) {
+        // close
+        weekContent.style.display = "none";
+        weekHeader.textContent = `Week ${w+1} ▼`;
+      } else {
+        // open
+        weekContent.style.display = "block";
+        weekHeader.textContent = `Week ${w+1} ▲`;
+      }
+    });
+
+    // Build 7 days
+    let dayFieldsArray = [];
+    for (let d = 0; d < NUM_DAYS; d++) {
+      // day container
+      const dayBlock = document.createElement("div");
+      dayBlock.className = "day-block";
+
+      // day title
+      const dayTitle = document.createElement("div");
+      dayTitle.className = "day-title";
+      dayTitle.textContent = `Day ${d+1}`;
+      dayBlock.appendChild(dayTitle);
+
+      // row for the fields
+      const dayRow = document.createElement("div");
+      dayRow.className = "day-row";
+
+      let fieldInputs = {};
+      FIELDS.forEach(field => {
+        // container for label + input or just input
+        const fieldContainer = document.createElement("div");
+
+        // label
+        const lbl = document.createElement("label");
+        lbl.className = "field-label";
+        lbl.textContent = field;
+        fieldContainer.appendChild(lbl);
+
+        // input
+        const inp = document.createElement("input");
+        inp.type = "text";
+        inp.className = "day-field";
+        fieldContainer.appendChild(inp);
+
+        dayRow.appendChild(fieldContainer);
+
+        // store reference
+        fieldInputs[field.toLowerCase()] = inp;
+      });
+
+      dayBlock.appendChild(dayRow);
+      weekContent.appendChild(dayBlock);
+
+      dayFieldsArray.push(fieldInputs);
+    }
+
+    weekBlock.appendChild(weekHeader);
+    weekBlock.appendChild(weekContent);
+    weeksContainer.appendChild(weekBlock);
+
+    // track them in weeksDOM so we can set/get their values later
+    weeksDOM.push(dayFieldsArray);
+  }
+}
+
+
+/* ---------- onSave: Gather all data, produce JSON download ---------- */
+function onSave() {
+  // 1. Gather top fields
+  const weightVal = document.getElementById("weightInput").value;
+  const maintVal  = document.getElementById("maintenanceOutput").value;
+
+  // 2. Gather each week's data
+  let weeksData = [];
+  for (let w = 0; w < NUM_WEEKS; w++) {
+    let daysArr = [];
+    for (let d = 0; d < NUM_DAYS; d++) {
+      const fieldsRef = weeksDOM[w][d];
+      daysArr.push({
+        day: d + 1,
+        weight:   fieldsRef["weight"].value,
+        calories: fieldsRef["calories"].value,
+        protein:  fieldsRef["protein"].value,
+        carbs:    fieldsRef["carbs"].value,
+        fat:      fieldsRef["fat"].value
+      });
+    }
+    weeksData.push({
+      week: w + 1,
+      days: daysArr
+    });
+  }
+
+  const dataObj = {
+    weight: weightVal,
+    maintenance: maintVal,
+    weeks: weeksData
+  };
+
+  // 3. Convert to JSON string
+  const jsonStr = JSON.stringify(dataObj, null, 2);
+
+  // 4. Trigger download
+  const blob = new Blob([jsonStr], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "gains_data.json";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+
+/* ---------- onLoadFileSelected: read JSON file, populate fields ---------- */
+function onLoadFileSelected(e) {
+  const file = e.target.files[0];
+  if (!file) return; // user canceled
+  const reader = new FileReader();
+  reader.onload = (evt) => {
+    try {
+      const dataStr = evt.target.result;
+      const dataObj = JSON.parse(dataStr);
+      // parse and populate
+      populateAllFields(dataObj);
+    } catch (err) {
+      alert("Error reading JSON: " + err);
+    }
+  };
+  reader.readAsText(file);
+}
+
+
+/* ---------- populateAllFields: fill UI from loaded data ---------- */
+function populateAllFields(data) {
+  // top fields
+  document.getElementById("weightInput").value = data.weight || "";
+  document.getElementById("maintenanceOutput").value = data.maintenance || "";
+
+  // weeks
+  if (Array.isArray(data.weeks)) {
+    data.weeks.forEach((wk, wIndex) => {
+      if (wIndex < NUM_WEEKS && Array.isArray(wk.days)) {
+        wk.days.forEach((dayObj, dIndex) => {
+          if (dIndex < NUM_DAYS) {
+            const fieldsRef = weeksDOM[wIndex][dIndex];
+            fieldsRef["weight"].value   = dayObj.weight   || "";
+            fieldsRef["calories"].value = dayObj.calories || "";
+            fieldsRef["protein"].value  = dayObj.protein  || "";
+            fieldsRef["carbs"].value    = dayObj.carbs    || "";
+            fieldsRef["fat"].value      = dayObj.fat      || "";
+          }
+        });
+      }
+    });
+  }
+
+  // done loading
+  // optionally reset the file input so user can load again if needed
+  document.getElementById("loadFileInput").value = "";
+}
+</script>
+
+</body>
+</html>
